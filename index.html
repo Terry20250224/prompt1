@@ -1,1 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RTHK RSS 即時新聞展示</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 800px;
+            margin: 30px auto;
+            padding: 0 20px;
+            background: #f4f6f9;
+            color: #333;
+        }
+        h1 {
+            color: #003366;
+            border-bottom: 2px solid #003366;
+            padding-bottom: 10px;
+        }
+        .news-item {
+            background: #fff;
+            padding: 16px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: transform 0.2s;
+        }
+        .news-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .news-title {
+            font-size: 1.1em;
+            font-weight: bold;
+            color: #0066cc;
+            text-decoration: none;
+            display: block;
+            margin-bottom: 8px;
+        }
+        .news-title:hover {
+            text-decoration: underline;
+        }
+        .news-date {
+            font-size: 0.85em;
+            color: #666;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+            font-size: 1.2em;
+            margin-top: 40px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>香港電台本地新聞 (RTHK RSS)</h1>
+    <div id="news-container">
+        <div class="loading">正在載入最新新聞...</div>
+    </div>
+
+    <script>
+        async function fetchRssNews() {
+            const container = document.getElementById('news-container');
+            // RTHK 本地新聞 RSS 連結
+            const rssUrl = 'https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml';
+            // 使用公開的 CORS 代理以繞過瀏覽器限制
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(rssUrl)}`;
+
+            try {
+                const response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error('無法取得 RSS 數據');
+                
+                const xmlText = await response.text();
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+                
+                const items = xmlDoc.querySelectorAll('item');
+                let htmlContent = '';
+
+                items.forEach(item => {
+                    const title = item.querySelector('title')?.textContent || '無標題';
+                    const link = item.querySelector('link')?.textContent || '#';
+                    const pubDate = item.querySelector('pubDate')?.textContent || '';
+                    
+                    // 轉換日期格式
+                    const dateFormatted = pubDate ? new Date(pubDate).toLocaleString('zh-HK') : '';
+
+                    htmlContent += `
+                        <div class="news-item">
+                            <a href="${link}" class="news-title" target="_blank" rel="noopener noreferrer">${title}</a>
+                            <div class="news-date">發布時間：${dateFormatted}</div>
+                        </div>
+                    `;
+                });
+
+                container.innerHTML = htmlContent || '<p>目前沒有新聞內容。</p>';
+            } catch (error) {
+                container.innerHTML = `<p style="color: red;">載入失敗：${error.message}</p>`;
+            }
+        }
+
+        fetchRssNews();
+    </script>
+
+</body>
+</html>
 
