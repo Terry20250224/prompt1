@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>全球即時資訊大雜燴</title>
+    <title>全球即時資訊牆 (上下獨立列陣)</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -12,9 +12,14 @@
             margin: 0;
             padding: 20px;
         }
-        .news-section {
+        .news-wrapper {
             max-width: 900px;
             margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+        }
+        .news-section {
             background: #fff;
             padding: 20px;
             border-radius: 12px;
@@ -22,10 +27,13 @@
         }
         .news-section h2 {
             color: #003366;
-            font-size: 1.3em;
+            font-size: 1.2em;
             margin-bottom: 15px;
-            border-bottom: 2px solid #003366;
+            border-bottom: 2px solid #f0f2f5;
             padding-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
         /* 橫向滾動容器 */
         .news-scroll-container {
@@ -57,20 +65,6 @@
             justify-content: space-between;
             border: 1px solid #eaeaea;
         }
-        .news-source-tag {
-            display: inline-block;
-            font-size: 0.7em;
-            font-weight: bold;
-            padding: 2px 6px;
-            border-radius: 4px;
-            margin-bottom: 8px;
-            width: fit-content;
-        }
-        /* 不同來源的小標籤顏色 */
-        .tag-rthk { background: #e6f0fa; color: #004080; }
-        .tag-bbc { background: #fae6e6; color: #990000; }
-        .tag-techcrunch { background: #e6faed; color: #006622; }
-
         .news-card-title {
             font-size: 0.95em;
             font-weight: bold;
@@ -93,7 +87,7 @@
         .news-loading {
             color: #666;
             font-size: 0.9em;
-            padding: 20px;
+            padding: 15px;
             text-align: center;
             width: 100%;
         }
@@ -101,101 +95,89 @@
 </head>
 <body>
 
-    <div class="news-section">
-        <h2>🌐 全球即時新聞精選（大雜燴）</h2>
-        <div id="mixed-news-container" class="news-scroll-container">
-            <div class="news-loading">正在同步各台最新資訊...</div>
+    <div class="news-wrapper">
+        <!-- 第一行：香港電台本地新聞 -->
+        <div class="news-section">
+            <h2>🇭🇰 香港電台本地新聞</h2>
+            <div id="container-rthk" class="news-scroll-container">
+                <div class="news-loading">正在載入新聞...</div>
+            </div>
+        </div>
+
+        <!-- 第二行：BBC 國際新聞 -->
+        <div class="news-section">
+            <h2>🌍 BBC 國際新聞</h2>
+            <div id="container-bbc" class="news-scroll-container">
+                <div class="news-loading">正在載入新聞...</div>
+            </div>
+        </div>
+
+        <!-- 第三行：TechCrunch 科技新聞 -->
+        <div class="news-section">
+            <h2>💻 TechCrunch 科技新聞</h2>
+            <div id="container-techcrunch" class="news-scroll-container">
+                <div class="news-loading">正在載入新聞...</div>
+            </div>
         </div>
     </div>
 
     <script>
-        async function fetchRssAsJson(url, sourceName, tagClass) {
-            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+        async function fetchAndRenderRow(url, containerId) {
+            const container = document.getElementById(containerId);
+            const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+            
             try {
                 const response = await fetch(proxyUrl);
-                if (!response.ok) return [];
+                if (!response.ok) throw new Error('連線失敗');
                 const xmlText = await response.text();
                 const parser = new DOMParser();
                 const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
-                const items = xmlDoc.querySelectorAll('item');
                 
-                let results = [];
-                items.forEach(item => {
+                // 支援 RSS (<item>) 與 Atom (<entry>) 格式
+                const items = xmlDoc.querySelectorAll('item, entry');
+                let htmlContent = '';
+                
+                const limit = Math.min(items.length, 6);
+                for (let i = 0; i < limit; i++) {
+                    const item = items[i];
                     const title = item.querySelector('title')?.textContent || '無標題';
-                    const link = item.querySelector('link')?.textContent || '#';
-                    const pubDateStr = item.querySelector('pubDate')?.textContent || '';
-                    const pubDate = pubDateStr ? new Date(pubDateStr) : new Date(0);
                     
-                    if (title && link) {
-                        results.push({
-                            title,
-                            link,
-                            pubDate,
-                            sourceName,
-                            tagClass
-                        });
+                    let link = '#';
+                    const linkEl = item.querySelector('link');
+                    if (linkEl) {
+                        link = linkEl.getAttribute('href') || linkEl.textContent || '#';
                     }
-                });
-                return results;
-            } catch (e) {
-                console.error(`抓取 ${sourceName} 失敗`, e);
-                return [];
-            }
-        }
+                    
+                    const dateStr = item.querySelector('pubDate')?.textContent || 
+                                    item.querySelector('published')?.textContent || 
+                                    item.querySelector('updated')?.textContent || '';
+                    
+                    let timeFormatted = '';
+                    if (dateStr) {
+                        const dateObj = new Date(dateStr);
+                        if (!isNaN(dateObj.getTime())) {
+                            timeFormatted = `${dateObj.getMonth() + 1}/${dateObj.getDate()} ${String(dateObj.getHours()).padStart(2, '0')}:${String(dateObj.getMinutes()).padStart(2, '0')}`;
+                        }
+                    }
 
-        async function loadMixedNews() {
-            const container = document.getElementById('mixed-news-container');
-            
-            // 定義多個來源
-            const sources = [
-                { url: 'https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml', name: '香港電台', tag: 'tag-rthk' },
-                { url: 'https://feeds.bbci.co.uk/news/world/rss.xml', name: 'BBC 國際', tag: 'tag-bbc' },
-                { url: 'https://techcrunch.com/feed/', name: 'TechCrunch', tag: 'tag-techcrunch' }
-            ];
-
-            // 同時抓取所有來源
-            const promises = sources.map(s => fetchRssAsJson(s.url, s.name, s.tag));
-            const resultsArray = await Promise.all(promises);
-            
-            // 合併所有新聞
-            let allNews = [];
-            resultsArray.forEach(arr => {
-                allNews = allNews.concat(arr);
-            });
-
-            // 依照發布時間由新到舊排序
-            allNews.sort((a, b) => b.pubDate - a.pubDate);
-
-            // 只取前 6 項
-            const top6 = allNews.slice(0, 6);
-
-            if (top6.length === 0) {
-                container.innerHTML = '<div class="news-loading" style="color:red;">暫無新聞資料可顯示</div>';
-                return;
-            }
-
-            let htmlContent = '';
-            top6.forEach(news => {
-                let timeFormatted = '';
-                if (news.pubDate.getTime() > 0) {
-                    timeFormatted = `${news.pubDate.getMonth() + 1}/${news.pubDate.getDate()} ${String(news.pubDate.getHours()).padStart(2, '0')}:${String(news.pubDate.getMinutes()).padStart(2, '0')}`;
+                    htmlContent += `
+                        <div class="news-card">
+                            <a href="${link.trim()}" class="news-card-title" target="_blank" rel="noopener noreferrer">${title.trim()}</a>
+                            <div class="news-card-date">${timeFormatted}</div>
+                        </div>
+                    `;
                 }
 
-                htmlContent += `
-                    <div class="news-card">
-                        <div>
-                            <span class="news-source-tag ${news.tagClass}">${news.sourceName}</span>
-                            <a href="${news.link}" class="news-card-title" target="_blank" rel="noopener noreferrer">${news.title}</a>
-                        </div>
-                        <div class="news-card-date">${timeFormatted}</div>
-                    </div>
-                `;
-            });
-
-            container.innerHTML = htmlContent;
+                container.innerHTML = htmlContent || '<div class="news-loading">暫無資料</div>';
+            } catch (error) {
+                container.innerHTML = `<div class="news-loading" style="color:red;">載入失敗</div>`;
+            }
         }
 
-        loadMixedNews();
+        // 分別載入三個不同來源的獨立列陣
+        fetchAndRenderRow('https://rthk.hk/rthk/news/rss/c_expressnews_clocal.xml', 'container-rthk');
+        fetchAndRenderRow('https://feeds.bbci.co.uk/news/world/rss.xml', 'container-bbc');
+        fetchAndRenderRow('https://techcrunch.com/feed/', 'container-techcrunch');
     </script>
 
 </body>
