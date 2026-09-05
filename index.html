@@ -35,7 +35,6 @@
       align-items: center;
       gap: 8px;
     }
-    /* 橫向滾動容器 */
     .news-scroll-container {
       display: flex;
       overflow-x: auto;
@@ -51,7 +50,6 @@
       background: #ccc;
       border-radius: 3px;
     }
-    /* 單個新聞長方形卡片 */
     .news-card {
       flex: 0 0 260px;
       width: 260px;
@@ -121,49 +119,36 @@
   </div>
 
   <script>
-    async function fetchAndRenderRow(url, containerId) {
+    async function fetchAndRenderRow(rssUrl, containerId) {
       const container = document.getElementById(containerId);
-      // 已修正：使用正確的 corsproxy.io 格式
-      const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
+
+      // 改用 rss2json（免費、不需 API Key、直接回 JSON）
+      const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
 
       try {
-        const response = await fetch(proxyUrl);
+        const response = await fetch(apiUrl);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-        const xmlText = await response.text();
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+        const data = await response.json();
 
-        // 檢查 XML 解析錯誤
-        if (xmlDoc.querySelector('parsererror')) {
-          throw new Error('XML 解析失敗');
+        if (data.status !== 'ok') {
+          throw new Error(data.message || 'RSS 讀取失敗');
         }
 
-        // 支援 RSS (<item>) 與 Atom (<entry>)
-        const items = xmlDoc.querySelectorAll('item, entry');
+        const items = data.items || [];
         let htmlContent = '';
         const limit = Math.min(items.length, 6);
 
         for (let i = 0; i < limit; i++) {
           const item = items[i];
-          const title = item.querySelector('title')?.textContent?.trim() || '無標題';
-
-          let link = '#';
-          const linkEl = item.querySelector('link');
-          if (linkEl) {
-            link = linkEl.getAttribute('href') || linkEl.textContent?.trim() || '#';
-          }
-
-          const dateStr = item.querySelector('pubDate')?.textContent
-                       || item.querySelector('published')?.textContent
-                       || item.querySelector('updated')?.textContent
-                       || '';
+          const title = item.title?.trim() || '無標題';
+          const link = item.link || item.guid || '#';
+          const dateStr = item.pubDate || '';
 
           let timeFormatted = '';
           if (dateStr) {
             const dateObj = new Date(dateStr);
             if (!isNaN(dateObj.getTime())) {
-              // 強制使用香港時間
               timeFormatted = dateObj.toLocaleString('zh-HK', {
                 timeZone: 'Asia/Hong_Kong',
                 month: 'numeric',
