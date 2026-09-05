@@ -119,64 +119,122 @@
   </div>
 
   <script>
+    // 通用時間格式化
+    function formatDate(dateStr) {
+      if (!dateStr) return '';
+      const dateObj = new Date(dateStr);
+      if (isNaN(dateObj.getTime())) return '';
+      return dateObj.toLocaleString('zh-HK', {
+        timeZone: 'Asia/Hong_Kong',
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+    }
+
+    // XSS 防護
+    function escapeHtml(str) {
+      return (str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    // 渲染卡片
+    function renderCards(items, container) {
+      let html = '';
+      const limit = Math.min(items.length, 6);
+
+      for (let i = 0; i < limit; i++) {
+        const item = items[i];
+        const title = item.title || '無標題';
+        const link = item.link || item.guid || '#';
+        const timeFormatted = formatDate(item.pubDate || item.published || item.updated);
+
+        html += `
+          <div class="news-card">
+            <a href="${link}" class="news-card-title" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>
+            <div class="news-card-date">${timeFormatted}</div>
+          </div>
+        `;
+      }
+
+      container.innerHTML = html || '<div class="news-loading">暫無資料</div>';
+    }
+
+    // 方法1：proxy.cors.sh（拿原始 XML）
+    async function fetchViaCorsSh(rssUrl) {
+      const proxyUrl = `https://proxy.cors.sh/${rssUrl}`;
+      const response = await fetch(proxyUrl);
+      if (!response.ok) throw new Error(`CORS.sh HTTP ${response.status}`);
+
+      const xmlText = await response.text();
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+
+      if (xmlDoc.querySelector('parsererror')) {
+        throw new Error('XML 解析失敗');
+      }
+
+      const nodes = xmlDoc.querySelectorAll('item, entry');
+      const items = [];
+
+      nodes.forEach(node => {
+        const title = node.querySelector('title')?.textContent?.trim() || '';
+        let link = '#';
+        const linkEl = node.querySelector('link');
+        if (linkEl) {
+          link = linkEl.getAttribute('href') || linkEl.textContent?.trim() || '#';
+        }
+        const pubDate = node.querySelector('pubDate')?.textContent
+          || node.querySelector('published')?.textContent
+          || node.querySelector('updated')?.textContent
+          || '';
+
+        items.push({ title, link, pubDate });
+      });
+
+      return items;
+    }
+
+    // 方法2：rss2json（備援）
+    async function fetchViaRss2Json(rssUrl) {
+      const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
+      const response = await fetch(apiUrl);
+      if (!response.ok) throw new Error(`rss2json HTTP ${response.status}`);
+
+      const data = await response.json();
+      if (data.status !== 'ok') {
+        throw new Error(data.message || 'rss2json 失敗');
+      }
+
+      return (data.items || []).map(item => ({
+        title: item.title,
+        link: item.link || item.guid,
+        pubDate: item.pubDate
+      }));
+    }
+
+    // 主函式：自動切換備援
     async function fetchAndRenderRow(rssUrl, containerId) {
       const container = document.getElementById(containerId);
 
-      // 改用 rss2json（免費、不需 API Key、直接回 JSON）
-      const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
-
       try {
-        const response = await fetch(apiUrl);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-        const data = await response.json();
-
-        if (data.status !== 'ok') {
-          throw new Error(data.message || 'RSS 讀取失敗');
+        // 優先使用 proxy.cors.sh
+        let items;
+        try {
+          items = await fetchViaCorsSh(rssUrl);
+        } catch (e1) {
+          console.warn(`[${containerId}] cors.sh 失敗，改用 rss2json:`, e1.message);
+          // 失敗就改用 rss2json
+          items = await fetchViaRss2Json(rssUrl);
         }
 
-        const items = data.items || [];
-        let htmlContent = '';
-        const limit = Math.min(items.length, 6);
-
-        for (let i = 0; i < limit; i++) {
-          const item = items[i];
-          const title = item.title?.trim() || '無標題';
-          const link = item.link || item.guid || '#';
-          const dateStr = item.pubDate || '';
-
-          let timeFormatted = '';
-          if (dateStr) {
-            const dateObj = new Date(dateStr);
-            if (!isNaN(dateObj.getTime())) {
-              timeFormatted = dateObj.toLocaleString('zh-HK', {
-                timeZone: 'Asia/Hong_Kong',
-                month: 'numeric',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false
-              });
-            }
-          }
-
-          // 簡單 XSS 防護
-          const safeTitle = title
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-
-          htmlContent += `
-            <div class="news-card">
-              <a href="${link}" class="news-card-title" target="_blank" rel="noopener noreferrer">${safeTitle}</a>
-              <div class="news-card-date">${timeFormatted}</div>
-            </div>
-          `;
-        }
-
-        container.innerHTML = htmlContent || '<div class="news-loading">暫無資料</div>';
+        renderCards(items, container);
       } catch (error) {
         console.error(containerId, error);
         container.innerHTML = `<div class="news-loading" style="color:red;">載入失敗：${error.message}</div>`;
